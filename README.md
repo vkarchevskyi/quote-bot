@@ -1,11 +1,15 @@
 # Quote Bot
 
-Telegram bot for Cloudflare Workers that receives webhook updates and replies to text messages with a generated PNG quote card.
+Telegram bot for Cloudflare Workers that receives webhook updates and replies with a generated PNG quote card.
 
 ## Behavior
 
 - Ignores all non-text Telegram messages.
-- Uses the incoming text message as the quote body.
+- In private chats, uses the incoming text message as the quote body.
+- In groups, generates the image only after `/quote` is invoked.
+- `/quote` supports two forms:
+  - `/quote your text here`
+  - reply to a text message with `/quote`
 - Generates a black image with:
   - title `Цитати великих людей`
   - horizontal divider line
