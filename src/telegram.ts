@@ -1,6 +1,5 @@
 export type TelegramAvatar = {
   bytes: Uint8Array;
-  mimeType: string;
 };
 
 type TelegramResponse<T> = {
@@ -55,7 +54,6 @@ export async function fetchUserAvatar(
 
   return {
     bytes: new Uint8Array(await fileResponse.arrayBuffer()),
-    mimeType: fileResponse.headers.get("content-type") ?? guessMimeType(file.file_path),
   };
 }
 
@@ -83,18 +81,4 @@ async function callTelegram<T>(
   }
 
   return data.result;
-}
-
-function guessMimeType(filePath: string): string {
-  const normalizedPath = filePath.toLowerCase();
-
-  if (normalizedPath.endsWith(".png")) {
-    return "image/png";
-  }
-
-  if (normalizedPath.endsWith(".webp")) {
-    return "image/webp";
-  }
-
-  return "image/jpeg";
 }

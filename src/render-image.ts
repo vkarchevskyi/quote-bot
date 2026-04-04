@@ -18,6 +18,7 @@ const QUOTE_COLOR = "#f5f5f5";
 const DIVIDER_COLOR = "#4a4a4a";
 const FOOTER_Y = 1180;
 const AVATAR_SIZE = 88;
+const AVATAR_IMAGE_HREF = "https://quote-bot.local/avatar";
 
 type RenderQuoteImageParams = {
   quote: string;
@@ -38,7 +39,7 @@ export async function renderQuoteImage({
   const fittedQuote = fitQuoteText(quote);
   const quoteTextY = QUOTE_TOP + fittedQuote.fontSize;
   const defsMarkup = renderDefs(Boolean(avatar));
-  const avatarMarkup = avatar ? renderAvatar(avatar) : "";
+  const avatarMarkup = avatar ? renderAvatar() : "";
   const footerTextX = avatar ? 270 : CONTENT_LEFT;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" viewBox="0 0 ${IMAGE_WIDTH} ${IMAGE_HEIGHT}">
@@ -68,7 +69,15 @@ export async function renderQuoteImage({
     },
   });
 
+  if (avatar) {
+    const imagesToResolve = resvg.imagesToResolve() as string[];
+    if (imagesToResolve.includes(AVATAR_IMAGE_HREF)) {
+      resvg.resolveImage(AVATAR_IMAGE_HREF, avatar.bytes);
+    }
+  }
+
   const rendered = resvg.render();
+  resvg.free();
   return rendered.asPng();
 }
 
@@ -91,13 +100,13 @@ function renderDefs(hasAvatar: boolean): string {
   `;
 }
 
-function renderAvatar(avatar: TelegramAvatar): string {
+function renderAvatar(): string {
   const avatarX = CONTENT_LEFT;
   const avatarY = FOOTER_Y - 48;
 
   return `
     <circle cx="${avatarX + AVATAR_SIZE / 2}" cy="${avatarY + AVATAR_SIZE / 2}" r="${AVATAR_SIZE / 2}" fill="#1f1f1f"/>
-    <image href="data:${avatar.mimeType};base64,${toBase64(avatar.bytes)}" x="${avatarX}" y="${avatarY}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-clip)"/>
+    <image href="${AVATAR_IMAGE_HREF}" x="${avatarX}" y="${avatarY}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-clip)"/>
   `;
 }
 
@@ -313,16 +322,4 @@ function escapeXml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
 }
