@@ -13,6 +13,7 @@ const CONTENT_WIDTH = 820;
 const CONTENT_LEFT = 130;
 const QUOTE_TOP = 300;
 const QUOTE_HEIGHT = 690;
+const QUOTE_CLIP_PADDING = 6;
 const QUOTE_COLOR = "#f5f5f5";
 const DIVIDER_COLOR = "#4a4a4a";
 const FOOTER_Y = 1180;
@@ -35,18 +36,23 @@ export async function renderQuoteImage({
 
   const displayName = [firstName, lastName].filter(Boolean).join(" ");
   const fittedQuote = fitQuoteText(quote);
+  const quoteTextY = QUOTE_TOP + fittedQuote.fontSize;
+  const defsMarkup = renderDefs(Boolean(avatar));
   const avatarMarkup = avatar ? renderAvatar(avatar) : "";
   const footerTextX = avatar ? 270 : CONTENT_LEFT;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" viewBox="0 0 ${IMAGE_WIDTH} ${IMAGE_HEIGHT}">
+      ${defsMarkup}
       <rect width="100%" height="100%" fill="#000000"/>
       <text x="${IMAGE_WIDTH / 2}" y="132" fill="#ffffff" text-anchor="middle" font-family="Noto Sans" font-size="54" letter-spacing="1.2">Цитати великих людей</text>
       <line x1="${CONTENT_LEFT}" y1="180" x2="${CONTENT_LEFT + CONTENT_WIDTH}" y2="180" stroke="${DIVIDER_COLOR}" stroke-width="3" stroke-linecap="round"/>
-      <text x="${CONTENT_LEFT}" y="${QUOTE_TOP}" fill="${QUOTE_COLOR}" font-family="Noto Sans" font-size="${fittedQuote.fontSize}" xml:space="preserve">
-        ${fittedQuote.lines
-          .map((line, index) => `<tspan x="${CONTENT_LEFT}" dy="${index === 0 ? 0 : fittedQuote.lineHeight}">${escapeXml(line)}</tspan>`)
-          .join("")}
-      </text>
+      <g clip-path="url(#quote-clip)">
+        <text x="${CONTENT_LEFT}" y="${quoteTextY}" fill="${QUOTE_COLOR}" font-family="Noto Sans" font-size="${fittedQuote.fontSize}" xml:space="preserve">
+          ${fittedQuote.lines
+            .map((line, index) => `<tspan x="${CONTENT_LEFT}" dy="${index === 0 ? 0 : fittedQuote.lineHeight}">${escapeXml(line)}</tspan>`)
+            .join("")}
+        </text>
+      </g>
       ${avatarMarkup}
       <text x="${footerTextX}" y="${FOOTER_Y + 20}" fill="#ffffff" font-family="Noto Sans" font-size="34">${escapeXml(displayName)}</text>
     </svg>
@@ -66,16 +72,30 @@ export async function renderQuoteImage({
   return rendered.asPng();
 }
 
+function renderDefs(hasAvatar: boolean): string {
+  const avatarClipMarkup = hasAvatar
+    ? `
+      <clipPath id="avatar-clip">
+        <circle cx="${CONTENT_LEFT + AVATAR_SIZE / 2}" cy="${FOOTER_Y - 48 + AVATAR_SIZE / 2}" r="${AVATAR_SIZE / 2}"/>
+      </clipPath>
+    `
+    : "";
+
+  return `
+    <defs>
+      <clipPath id="quote-clip">
+        <rect x="${CONTENT_LEFT - QUOTE_CLIP_PADDING}" y="${QUOTE_TOP - QUOTE_CLIP_PADDING}" width="${CONTENT_WIDTH + QUOTE_CLIP_PADDING * 2}" height="${QUOTE_HEIGHT + QUOTE_CLIP_PADDING * 2}"/>
+      </clipPath>
+      ${avatarClipMarkup}
+    </defs>
+  `;
+}
+
 function renderAvatar(avatar: TelegramAvatar): string {
   const avatarX = CONTENT_LEFT;
   const avatarY = FOOTER_Y - 48;
 
   return `
-    <defs>
-      <clipPath id="avatar-clip">
-        <circle cx="${avatarX + AVATAR_SIZE / 2}" cy="${avatarY + AVATAR_SIZE / 2}" r="${AVATAR_SIZE / 2}"/>
-      </clipPath>
-    </defs>
     <circle cx="${avatarX + AVATAR_SIZE / 2}" cy="${avatarY + AVATAR_SIZE / 2}" r="${AVATAR_SIZE / 2}" fill="#1f1f1f"/>
     <image href="data:${avatar.mimeType};base64,${toBase64(avatar.bytes)}" x="${avatarX}" y="${avatarY}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-clip)"/>
   `;
@@ -84,12 +104,43 @@ function renderAvatar(avatar: TelegramAvatar): string {
 function fitQuoteText(input: string): { fontSize: number; lineHeight: number; lines: string[] } {
   const sanitized = sanitizeQuote(input);
   const fontSizes = [76, 68, 62, 56, 50, 46, 42, 38, 34];
+  const widthCache = new Map<string, number>();
+
+  const measureTextWidth = (value: string, fontSize: number): number => {
+    const cacheKey = `${fontSize}:${value}`;
+    const cachedWidth = widthCache.get(cacheKey);
+    if (cachedWidth !== undefined) {
+      return cachedWidth;
+    }
+
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${CONTENT_WIDTH * 2}" height="${fontSize * 3}" viewBox="0 0 ${CONTENT_WIDTH * 2} ${fontSize * 3}">
+        <text x="0" y="${fontSize}" fill="#ffffff" font-family="Noto Sans" font-size="${fontSize}" xml:space="preserve">${escapeXml(value)}</text>
+      </svg>
+    `;
+
+    const resvg = new Resvg(svg, {
+      font: {
+        fontBuffers: [fontBuffer],
+        defaultFontFamily: "Noto Sans",
+        sansSerifFamily: "Noto Sans",
+        defaultFontSize: 16,
+      },
+    });
+
+    const bbox = resvg.getBBox() ?? resvg.innerBBox();
+    const width = bbox?.width ?? 0;
+    bbox?.free();
+    resvg.free();
+
+    widthCache.set(cacheKey, width);
+    return width;
+  };
 
   for (const fontSize of fontSizes) {
     const lineHeight = Math.round(fontSize * 1.34);
     const maxLines = Math.max(3, Math.floor(QUOTE_HEIGHT / lineHeight));
-    const maxUnitsPerLine = CONTENT_WIDTH / (fontSize * 0.57);
-    const lines = wrapText(sanitized, maxUnitsPerLine, maxLines);
+    const lines = wrapText(sanitized, fontSize, CONTENT_WIDTH, maxLines, measureTextWidth);
 
     if (lines.length <= maxLines) {
       return { fontSize, lineHeight, lines };
@@ -101,7 +152,13 @@ function fitQuoteText(input: string): { fontSize: number; lineHeight: number; li
   return {
     fontSize: fallbackFontSize,
     lineHeight: fallbackLineHeight,
-    lines: wrapText(sanitized, CONTENT_WIDTH / (fallbackFontSize * 0.57), Math.floor(QUOTE_HEIGHT / fallbackLineHeight)),
+    lines: wrapText(
+      sanitized,
+      fallbackFontSize,
+      CONTENT_WIDTH,
+      Math.floor(QUOTE_HEIGHT / fallbackLineHeight),
+      measureTextWidth,
+    ),
   };
 }
 
@@ -116,7 +173,13 @@ function sanitizeQuote(input: string): string {
     .slice(0, 900);
 }
 
-function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): string[] {
+function wrapText(
+  input: string,
+  fontSize: number,
+  maxWidth: number,
+  maxLines: number,
+  measureTextWidth: (value: string, fontSize: number) => number,
+): string[] {
   const paragraphs = input.split("\n");
   const lines: string[] = [];
 
@@ -134,7 +197,7 @@ function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): str
     for (const word of words) {
       const candidate = currentLine ? `${currentLine} ${word}` : word;
 
-      if (measureTextUnits(candidate) <= maxUnitsPerLine) {
+      if (measureTextWidth(candidate, fontSize) <= maxWidth) {
         currentLine = candidate;
         continue;
       }
@@ -142,16 +205,16 @@ function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): str
       if (currentLine) {
         lines.push(currentLine);
         if (lines.length >= maxLines) {
-          return truncateLines(lines, maxLines);
+          return truncateLines(lines, maxLines, fontSize, maxWidth, measureTextWidth);
         }
       }
 
-      if (measureTextUnits(word) <= maxUnitsPerLine) {
+      if (measureTextWidth(word, fontSize) <= maxWidth) {
         currentLine = word;
         continue;
       }
 
-      const brokenWordLines = breakLongWord(word, maxUnitsPerLine);
+      const brokenWordLines = breakLongWord(word, fontSize, maxWidth, measureTextWidth);
       for (let index = 0; index < brokenWordLines.length - 1; index += 1) {
         const brokenLine = brokenWordLines[index];
         if (!brokenLine) {
@@ -160,7 +223,7 @@ function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): str
 
         lines.push(brokenLine);
         if (lines.length >= maxLines) {
-          return truncateLines(lines, maxLines);
+          return truncateLines(lines, maxLines, fontSize, maxWidth, measureTextWidth);
         }
       }
 
@@ -171,7 +234,7 @@ function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): str
       lines.push(currentLine);
       const hasMoreParagraphs = paragraphIndex < paragraphs.length - 1;
       if (lines.length >= maxLines && hasMoreParagraphs) {
-        return truncateLines(lines, maxLines);
+        return truncateLines(lines, maxLines, fontSize, maxWidth, measureTextWidth);
       }
     }
   }
@@ -179,13 +242,18 @@ function wrapText(input: string, maxUnitsPerLine: number, maxLines: number): str
   return lines;
 }
 
-function breakLongWord(word: string, maxUnitsPerLine: number): string[] {
+function breakLongWord(
+  word: string,
+  fontSize: number,
+  maxWidth: number,
+  measureTextWidth: (value: string, fontSize: number) => number,
+): string[] {
   const parts: string[] = [];
   let current = "";
 
   for (const char of Array.from(word)) {
     const candidate = current + char;
-    if (measureTextUnits(candidate) <= maxUnitsPerLine || current.length === 0) {
+    if (measureTextWidth(candidate, fontSize) <= maxWidth || current.length === 0) {
       current = candidate;
       continue;
     }
@@ -201,60 +269,41 @@ function breakLongWord(word: string, maxUnitsPerLine: number): string[] {
   return parts;
 }
 
-function truncateLines(lines: string[], maxLines: number): string[] {
+function truncateLines(
+  lines: string[],
+  maxLines: number,
+  fontSize: number,
+  maxWidth: number,
+  measureTextWidth: (value: string, fontSize: number) => number,
+): string[] {
   const slicedLines = lines.slice(0, maxLines);
   const lastLine = slicedLines[maxLines - 1] ?? "";
-  slicedLines[maxLines - 1] = trimToUnits(`${lastLine}...`, measureTextUnits(lastLine));
+  slicedLines[maxLines - 1] = trimToWidth(
+    `${lastLine}...`,
+    fontSize,
+    maxWidth,
+    measureTextWidth,
+  );
   return slicedLines;
 }
 
-function trimToUnits(value: string, maxUnits: number): string {
+function trimToWidth(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+  measureTextWidth: (value: string, fontSize: number) => number,
+): string {
   let trimmed = "";
 
   for (const char of Array.from(value)) {
     const candidate = trimmed + char;
-    if (measureTextUnits(candidate) > maxUnits) {
+    if (measureTextWidth(candidate, fontSize) > maxWidth) {
       break;
     }
     trimmed = candidate;
   }
 
   return trimmed.endsWith("...") ? trimmed : `${trimmed.replace(/\.*$/, "")}...`;
-}
-
-function measureTextUnits(value: string): number {
-  let units = 0;
-
-  for (const char of Array.from(value)) {
-    if (char === " ") {
-      units += 0.36;
-      continue;
-    }
-
-    if (/[.,:;!?'"`]/.test(char)) {
-      units += 0.32;
-      continue;
-    }
-
-    if (/[()\[\]{}]/.test(char)) {
-      units += 0.38;
-      continue;
-    }
-
-    if (/[A-ZА-ЯІЇЄҐ]/.test(char)) {
-      units += 0.74;
-      continue;
-    }
-
-    if (/[0-9]/.test(char)) {
-      units += 0.63;
-      continue;
-    }
-
-    units += 0.6;
-  }
-
-  return units;
 }
 
 function escapeXml(value: string): string {
