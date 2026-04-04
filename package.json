@@ -1,0 +1,20 @@
+{
+  "name": "quote-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
+    "grammy": "^1.38.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260402.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.9.1"
+  }
+}
