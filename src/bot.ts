@@ -19,6 +19,15 @@ type QuoteRequest = {
 export function createBot(env: Env): Bot {
   const bot = new Bot(env.BOT_TOKEN);
 
+  bot.command("start", async (ctx) => {
+    await ctx.reply(
+      [
+        "Send me a text in a private chat and I will turn it into a quote image.",
+        "In groups, use /quote <text> or reply to a text message with /quote.",
+      ].join("\n\n"),
+    );
+  });
+
   bot.command("quote", async (ctx) => {
     const quoteRequest = getQuoteRequest(ctx);
 
