@@ -4,12 +4,12 @@ Telegram bot for Cloudflare Workers that receives webhook updates and replies wi
 
 ## Behavior
 
-- Ignores all non-text Telegram messages.
-- In private chats, uses the incoming text message as the quote body.
+- Ignores messages that have neither text nor caption.
+- In private chats, uses the incoming text message or image caption as the quote body.
 - In groups, generates the image only after `/quote` is invoked.
 - `/quote` supports two forms:
   - `/quote your text here`
-  - reply to a text message with `/quote`
+  - reply to a text message or captioned image with `/quote`
 - Generates a black image with:
   - title `Цитати великих людей`
   - horizontal divider line

@@ -22,8 +22,8 @@ export function createBot(env: Env): Bot {
   bot.command("start", async (ctx) => {
     await ctx.reply(
       [
-        "Send me a text in a private chat and I will turn it into a quote image.",
-        "In groups, use /quote <text> or reply to a text message with /quote.",
+        "Send me a text or a photo with a caption in a private chat and I will turn it into a quote image.",
+        "In groups, use /quote <text> or reply to a text or captioned photo with /quote.",
       ].join("\n\n"),
     );
   });
@@ -33,7 +33,7 @@ export function createBot(env: Env): Bot {
 
     if (!quoteRequest) {
       await ctx.reply(
-        "Use /quote <text> or reply to a text message with /quote.",
+        "Use /quote <text> or reply to a text message or captioned image with /quote.",
       );
       return;
     }
@@ -41,13 +41,18 @@ export function createBot(env: Env): Bot {
     await sendQuoteImage(ctx, env.BOT_TOKEN, quoteRequest);
   });
 
-  bot.on("message:text", async (ctx) => {
+  bot.on("message", async (ctx) => {
     if (ctx.chat.type !== "private" || isCommandMessage(ctx)) {
       return;
     }
 
+    const quote = getMessageQuote(ctx.message);
+    if (!quote) {
+      return;
+    }
+
     await sendQuoteImage(ctx, env.BOT_TOKEN, {
-      quote: ctx.message.text.trim(),
+      quote,
       firstName: ctx.from.first_name,
       lastName: ctx.from.last_name,
       userId: ctx.from.id,
@@ -106,8 +111,9 @@ function getQuoteRequest(ctx: Context): QuoteRequest | null {
   }
 
   const repliedMessage = ctx.message?.reply_to_message;
-  if (repliedMessage?.text && repliedMessage.from) {
-    const quote = repliedMessage.text.trim();
+  const repliedQuote = repliedMessage ? getMessageQuote(repliedMessage) : null;
+  if (repliedQuote && repliedMessage?.from) {
+    const quote = repliedQuote.trim();
     if (quote) {
       return {
         quote,
@@ -122,6 +128,15 @@ function getQuoteRequest(ctx: Context): QuoteRequest | null {
 }
 
 function isCommandMessage(ctx: Context): boolean {
-  const firstEntity = ctx.message?.entities?.[0];
+  const firstEntity = ctx.message?.entities?.[0] ?? ctx.message?.caption_entities?.[0];
   return firstEntity?.type === "bot_command" && firstEntity.offset === 0;
+}
+
+function getMessageQuote(message: { text?: string; caption?: string } | undefined): string | null {
+  if (!message) {
+    return null;
+  }
+
+  const value = message.text?.trim() ?? message.caption?.trim();
+  return value || null;
 }
